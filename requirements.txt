@@ -4,3 +4,4 @@ pandas
 pydantic
 requests
 streamlit>=1.23.0
+google-generativeai

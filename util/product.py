@@ -3,10 +3,13 @@ import base64
 import pandas as pd
 import json
 import ast
+from PIL import Image   # ★ 추가 필요
+from io import BytesIO  # ★ 추가 필요
 from bs4 import BeautifulSoup
 from requests.exceptions import HTTPError
 from schema.product import ProductSchema
 from urllib.parse import urljoin
+from ai.model import call_ai_service
 
 # 상품api 에서 상품정보 추출
 def getProductInfo(prd_no):
@@ -36,30 +39,103 @@ def getProductInfo(prd_no):
 # 외부 사이트 이미지 제한정책으로 인한 이미지 로컬 다운로드 
 def encode_image_to_base64(image_url):
     try:
-        # 1. 브라우저처럼 보이기 위해 User-Agent 헤더 추가 (필수!)
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         }
-        
-        # 2. 이미지 다운로드 (10초 타임아웃 설정)
-        response = requests.get(image_url, headers=headers, timeout=10)
+        response = requests.get(image_url, headers=headers, timeout=5)
         
         if response.status_code == 200:
-            # 3. 바이너리 데이터를 Base64 문자열로 인코딩
-            encoded_string = base64.b64encode(response.content).decode('utf-8')
-            # 4. 데이터 포맷에 맞춰 반환
-            return f"data:image/jpeg;base64,{encoded_string}"
-        else:
-            print(f"이미지 다운로드 실패 (상태 코드: {response.status_code}): {image_url}")
-            return None
+            # 1. 이미지 데이터 로드
+            img_data = response.content
+            
+            # ★ [Qwen 에러 방지] 이미지 크기 검사 로직 추가
+            try:
+                img = Image.open(BytesIO(img_data))
+                width, height = img.size
+                
+                # 가로 또는 세로가 50px 미만이면 무시 (아이콘, 추적픽셀 등)
+                if width < 50 or height < 50:
+                    print(f"🚫 너무 작은 이미지 제외 ({width}x{height}): {image_url}")
+                    return None
+            except Exception:
+                # 이미지 파일이 아니거나 손상된 경우 무시
+                return None
+
+            # 2. Base64 인코딩
+            encoded_string = base64.b64encode(img_data).decode('utf-8')
+            
+            # 확장자 판별 (기본 jpg)
+            mime_type = "image/jpeg"
+            if image_url.lower().endswith(".png"):
+                mime_type = "image/png"
+            elif image_url.lower().endswith(".gif"):
+                mime_type = "image/gif"
+                
+            return f"data:{mime_type};base64,{encoded_string}"
             
     except Exception as e:
-        print(f"이미지 변환 중 오류: {e} | URL: {image_url}")
+        print(f"이미지 다운로드 실패: {e}")
         return None
+    return None
 
-def get_prd_desc_by_html(html_content):
+# 이미지 chunk
+def encode_image_to_base64_chunk(image_url):
+    """
+    이미지를 다운로드하여 Base64 리스트로 반환 (긴 이미지는 자름)
+    Return: List[str] (예: ["data:...", "data:..."])
+    """
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        response = requests.get(image_url, headers=headers, timeout=5)
+        
+        if response.status_code == 200:
+            img_data = response.content
+            
+            try:
+                img = Image.open(BytesIO(img_data))
+                width, height = img.size
+                
+                # 1. 너무 작은 이미지 제외
+                if width < 50 or height < 50:
+                    return []
 
-    return ""
+                results = []
+                
+                # 2. 세로로 긴 이미지 처리 (비율 1:2.5 초과)
+                if height > width * 2.5:
+                    chunk_height = width 
+                    for y in range(0, height, chunk_height):
+                        bottom = min(y + chunk_height, height)
+                        box = (0, y, width, bottom)
+                        cropped_img = img.crop(box)
+                        
+                        buffered = BytesIO()
+                        if cropped_img.mode in ("RGBA", "P"):
+                            cropped_img = cropped_img.convert("RGB")
+                        cropped_img.save(buffered, format="JPEG")
+                        
+                        encoded_chunk = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                        results.append(f"data:image/jpeg;base64,{encoded_chunk}")
+                        
+                        if len(results) >= 5: break # 최대 5조각
+                    return results
+
+                # 3. 일반 이미지
+                else:
+                    encoded_string = base64.b64encode(img_data).decode('utf-8')
+                    # 확장자 처리
+                    mime_type = "image/jpeg"
+                    if image_url.lower().endswith(".png"): mime_type = "image/png"
+                    elif image_url.lower().endswith(".gif"): mime_type = "image/gif"
+                    
+                    return [f"data:{mime_type};base64,{encoded_string}"] # 리스트로 감쌈
+                    
+            except Exception:
+                return []
+    except Exception:
+        return []
+    return []
+
 
 # json 데이터 정규화
 def getPrdInfoByJson(data):
@@ -212,7 +288,7 @@ def format_product_metadata(rowData):
     return meta_text
 
 # 상품정보 기반 스타일, 속성, 카테고리 등 추론
-def analyze_product_with_full_context(html_content, client=None, model_name="gpt-4o", base_url=None, max_images=5):
+def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", base_url=None, max_images=5):
     """
     이미지 + HTML설명 + 메타데이터(브랜드, 스펙, 옵션)를 모두 통합하여 분석
     """
@@ -222,6 +298,8 @@ def analyze_product_with_full_context(html_content, client=None, model_name="gpt
     
     # 2. HTML 상세설명 (기존 로직)
     row = html_content.iloc[0]
+    basic_ext_nm = row.get('prdImg', '')
+    basic_ext_nm = f"https://cdn2.halfclub.com/rimg/330x440/contain/{basic_ext_nm}?format=webp"
     html_desc = row.get('prdDesc', '')
     if html_desc:
         soup = BeautifulSoup(html_desc, 'html.parser')
@@ -273,9 +351,22 @@ def analyze_product_with_full_context(html_content, client=None, model_name="gpt
 
     # 유저 메시지에 메타데이터와 상세설명을 구분해서 주입
     user_content = [
-        {
-            "type": "text", 
-            "text": f"""
+            {
+                "type": "text", 
+                "text": f"""
+                다음은 상품에 대한 텍스트 데이터이다. 이 내용을 분석의 핵심 근거로 삼아라.
+                
+                {metadata_text}
+                
+                ----------------
+                [상세 페이지 문구]
+                {clean_desc}
+                """
+            }
+        ]
+    
+    if "gemini" in model_name.lower(): 
+        user_content = f"""
             다음은 상품에 대한 텍스트 데이터이다. 이 내용을 분석의 핵심 근거로 삼아라.
             
             {metadata_text}
@@ -284,8 +375,6 @@ def analyze_product_with_full_context(html_content, client=None, model_name="gpt
             [상세 페이지 문구]
             {clean_desc}
             """
-        }
-    ]
     
     # 이미지 추가 (Base64 변환 로직은 기존과 동일하므로 함수 호출로 대체)
     # --- 2. 스마트 이미지 추출 및 필터링 ---
@@ -324,6 +413,7 @@ def analyze_product_with_full_context(html_content, client=None, model_name="gpt
         # width = img.get('width')
         # if width and width.isdigit() and int(width) < 100: continue
 
+        found_images.append(basic_ext_nm)
         found_images.append(full_url)
         seen_urls.add(full_url)
         
@@ -331,27 +421,40 @@ def analyze_product_with_full_context(html_content, client=None, model_name="gpt
         if len(found_images) >= max_images:
             break
 
+    
+    ai_image_inputs = []
+    used_image_urls = [] # ★ 실제로 사용된(Base64 변환 성공한) 이미지 URL 저장용
+
     # 외부 이미지 제한정책으로 인한 로컬 다운로드
     if found_images:
         valid_image_count = 0
-        user_content.append({"type": "text", "text": "상품 이미지들:"})
+
+        if not "gemini" in model_name.lower(): 
+            user_content.append({"type": "text", "text": "상품 이미지들:"})
+        
         
         for img_url in found_images:
             # 최대 4장까지만 처리 (비용 및 속도 고려)
-            if valid_image_count >= 4:
+            if valid_image_count >= max_images:
                 break
                 
             # ★ 핵심: URL을 그냥 보내지 않고, Base64로 변환해서 보냄
             base64_image = encode_image_to_base64(img_url)
             
             if base64_image:
-                user_content.append({
-                    "type": "image_url",
-                    "image_url": {
-                        "url": base64_image, # 변환된 문자열을 넣음
-                        "detail": "low"      # low 모드 유지
-                    }
-                })
+
+                if "gemini" in model_name.lower(): 
+                    ai_image_inputs.append(base64_image)
+                else:
+                    user_content.append({
+                        "type": "image_url",
+                        "image_url": {
+                            "url": base64_image, # 변환된 문자열을 넣음
+                            "detail": "low"      # low 모드 유지
+                        }
+                    })
+                    
+                used_image_urls.append(base64_image)
                 valid_image_count += 1
                 print(f"✅ 이미지 변환 성공: {img_url}")
             else:
@@ -359,26 +462,15 @@ def analyze_product_with_full_context(html_content, client=None, model_name="gpt
 
     # --- 4. OpenAI API 호출 ---
     try:
-        response = client.beta.chat.completions.parse(
-            model=model_name, 
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content}
-            ],
-            response_format=ProductSchema, # 사용자가 정의한 Pydantic 모델
-            temperature=0.2
+        response = call_ai_service(
+            system_prompt=system_prompt,
+            user_text=user_content,
+            image_list=ai_image_inputs,
+            model_name=model_name
         )
-        
-        product_data = response.choices[0].message.parsed
-        
-        # Pydantic 모델을 dict로 변환
-        # final_data = product_data.model_dump()
-        
-        # (옵션) AI가 선택한 이미지가 유효한지 체크하거나, 원본 리스트를 별도 필드에 저장 가능
-        # final_data['all_images'] = found_images 
-        
-        # return json.dumps(final_data, indent=2, ensure_ascii=False)
-        return product_data
+
+        product_data = response
+        return product_data, used_image_urls
         
     except Exception as e:
         print(f"API 호출 중 오류 발생: {e}")
