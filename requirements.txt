@@ -3,4 +3,4 @@ openai
 pandas
 pydantic
 requests
-streamlit
+streamlit>=1.23.0
