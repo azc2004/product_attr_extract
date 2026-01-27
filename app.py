@@ -56,9 +56,19 @@ def main():
         selected_sidebar_model = st.radio(
             "사용할 AI 모델",
             # ★ 여기에 gemini-1.5-flash 추가
-            options=["gpt-4o", "gpt-4o-mini", "qwen-vl-plus", "gemini-2.5-flash"],
+            options=[
+                    "gemini-2.5-flash",
+                    "qwen-vl-plus",
+                    "gpt-4o-mini", 
+                    "gpt-4o"
+                ],
             index=0,
-            captions=["OpenAI 고성능", "OpenAI 경량", "Qwen 경량", "Google 초고속"]
+            captions=[
+                    "Google 초고속/저비용",
+                    "Qwen 경량/저비용", 
+                    "OpenAI 경량/저비용", 
+                    "OpenAI 고성능/고비용"
+                ]
         )
         st.info(f"선택된 모델: **{selected_sidebar_model}**")
 
