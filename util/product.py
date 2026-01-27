@@ -288,7 +288,7 @@ def format_product_metadata(rowData):
     return meta_text
 
 # 상품정보 기반 스타일, 속성, 카테고리 등 추론
-def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", base_url=None, max_images=5):
+def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", base_url=None, max_images=6):
     """
     이미지 + HTML설명 + 메타데이터(브랜드, 스펙, 옵션)를 모두 통합하여 분석
     """
@@ -434,7 +434,7 @@ def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", ba
         
         
         for img_url in found_images:
-            # 최대 4장까지만 처리 (비용 및 속도 고려)
+            # 최대 6장까지만 처리 (비용 및 속도 고려)
             if valid_image_count >= max_images:
                 break
                 
