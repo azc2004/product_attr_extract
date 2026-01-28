@@ -1,3 +1,4 @@
+import streamlit as st
 import json
 import base64
 import google.generativeai as genai  # Gemini용 SDK
@@ -29,7 +30,8 @@ def _call_gemini_api(system_prompt, user_text, image_list, model_name, api_key):
         model = genai.GenerativeModel(
             model_name=model_name, # 예: "gemini-2.5-flash"
             system_instruction=system_prompt,
-            generation_config=generation_config
+            generation_config=generation_config,
+            safety_settings=safety_settings
         )
 
         # 1. 멀티모달(텍스트+이미지) 구성
@@ -43,7 +45,7 @@ def _call_gemini_api(system_prompt, user_text, image_list, model_name, api_key):
 
         # 2. 첫 번째 시도 (이미지 포함)
         try:
-            response = model.generate_content(content_parts, safety_settings=safety_settings)
+            response = model.generate_content(content_parts)
         except Exception:
             response = None
 
@@ -60,7 +62,7 @@ def _call_gemini_api(system_prompt, user_text, image_list, model_name, api_key):
                 st.toast(f"⚠️ 이미지 보안 정책으로 인해 텍스트만 분석합니다.", icon="🛡️")
                 
                 # 이미지를 뺀 순수 텍스트만 전송
-                response = model.generate_content([user_text], safety_settings=safety_settings)
+                response = model.generate_content([user_text])
             else:
                 st.error(f"❌ Gemini가 응답을 거부했습니다. (사유: {reason})")
                 return None
