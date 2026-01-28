@@ -57,20 +57,33 @@ def main():
             "사용할 AI 모델",
             # ★ 여기에 gemini-1.5-flash 추가
             options=[
+                    "gemini-2.5-flash-lite",
                     "gemini-2.5-flash",
                     "qwen-vl-plus",
+                    "qwen3-vl-plus",
                     "gpt-4o-mini", 
                     "gpt-4o"
                 ],
             index=0,
             captions=[
+                    "Google 초고속/초저비용",
                     "Google 초고속/저비용",
                     "Qwen 경량/저비용", 
+                    "Qwen3 고성능/저비용", 
                     "OpenAI 경량/저비용", 
                     "OpenAI 고성능/고비용"
                 ]
         )
         st.info(f"선택된 모델: **{selected_sidebar_model}**")
+
+        st.markdown("---")
+        # ★ [추가] 이미지 분석 포함 여부 토글
+        use_image_analysis = st.toggle("📸 이미지 포함하여 분석", value=True)
+        
+        if use_image_analysis:
+            st.caption("✅ 텍스트 + 이미지 모두 분석합니다.")
+        else:
+            st.caption("⚡ 텍스트만 빠르게 분석합니다. (이미지 제외)")
 
     # 메인 타이틀
     st.title("🛍️ 이커머스 상품 정보 AI 분석기")
@@ -95,7 +108,7 @@ def main():
         with col1:
             search_query = st.text_input("검색어 입력", "원피스")
         with col2:
-            search_btn = st.form_submit_button("검색", type="primary", use_container_width=True)
+            search_btn = st.form_submit_button("검색", type="primary", width="stretch")
 
     if search_btn:
         # ES 검색 결과 가져오기
@@ -145,7 +158,7 @@ def main():
                         # ==========================================
                         # [수정 2] 버튼 통합
                         # ==========================================
-                        analyze_btn = st.button("✨ 분석", key=f"btn_analyze_{item['prdNo']}", type="secondary", use_container_width=True)
+                        analyze_btn = st.button("✨ 분석", key=f"btn_analyze_{item['prdNo']}", type="secondary", width="stretch")
 
                         if analyze_btn:
                             # 1. 데이터 준비
@@ -180,10 +193,11 @@ def main():
                     
                     # 선택된 모델로 분석 실행
                     # 주의: analyze_product_with_full_context 함수 내부에서
-                    # gemini-1.5-flash 모델명을 처리할 수 있어야 합니다.
+                    # gemini-2.5-flash 모델명을 처리할 수 있어야 합니다.
                     result, used_images = analyze_product_with_full_context(
                         row, 
-                        model_name=model_name
+                        model_name=model_name,
+                        use_images = use_image_analysis
                     )
                     st.session_state.ai_result = result
                     # ★ [추가] 사용된 이미지 리스트도 세션에 저장
@@ -258,7 +272,7 @@ def main():
                     for idx, img_url in enumerate(st.session_state.analyzed_images):
                         with img_cols[idx % 3]:
                             # 캡션에 순서 표시 (이미지 1, 이미지 2...)
-                            st.image(img_url, caption=f"이미지 {idx+1}", use_container_width=True)
+                            st.image(img_url, caption=f"이미지 {idx+1}", width="stretch")
         
         # ---------------------------------------------------------
         # [하단 레이아웃] AI 분석 리포트
@@ -273,7 +287,7 @@ def main():
             res = st.session_state.ai_result
             
             # 탭으로 결과 보여주기
-            tab1, tab2 = st.tabs(["📋 스펙 분석", "✍️ 마케팅 카피"])
+            tab1, tab2 = st.tabs(["📋 스펙 분석", "✍️ Description"])
             
             with tab1:
                 st.success(f"AI({used_model})가 분석한 스타일 및 속성입니다.")
