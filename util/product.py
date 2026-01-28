@@ -38,6 +38,12 @@ def getProductInfo(prd_no):
 
 # 외부 사이트 이미지 제한정책으로 인한 이미지 로컬 다운로드 
 def encode_image_to_base64(image_url):
+    """
+    이미지를 다운로드하여 리사이징 및 압축 후 Base64 리스트로 반환
+    - 긴 축 최대 1024px로 리사이징
+    - JPEG 품질 70으로 압축
+    - 세로로 긴 이미지는 잘라서 처리
+    """
     try:
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
@@ -51,12 +57,25 @@ def encode_image_to_base64(image_url):
             # ★ [Qwen 에러 방지] 이미지 크기 검사 로직 추가
             try:
                 img = Image.open(BytesIO(img_data))
-                width, height = img.size
-                
+                if img.mode in ("RGBA", "P"): img = img.convert("RGB") # 포맷 통일
+
+                width, height = img.size                
                 # 가로 또는 세로가 50px 미만이면 무시 (아이콘, 추적픽셀 등)
                 if width < 50 or height < 50:
                     print(f"🚫 너무 작은 이미지 제외 ({width}x{height}): {image_url}")
                     return None
+                
+                # 리사이징 설정
+                MAX_SIZE = 1024
+                JPEG_QUALITY = 85
+                results = []
+
+                # img.thumbnail((MAX_SIZE, MAX_SIZE), Image.Resampling.LANCZOS)
+                buf = BytesIO()
+                img.save(buf, format="JPEG", quality=JPEG_QUALITY)
+                b64_str = base64.b64encode(buf.getvalue()).decode("utf-8")
+                return f"data:image/jpeg;base64,{b64_str}"
+
             except Exception:
                 # 이미지 파일이 아니거나 손상된 경우 무시
                 return None
@@ -288,7 +307,7 @@ def format_product_metadata(rowData):
     return meta_text
 
 # 상품정보 기반 스타일, 속성, 카테고리 등 추론
-def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", base_url=None, max_images=6):
+def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", base_url=None, max_images=6, use_images=True):
     """
     이미지 + HTML설명 + 메타데이터(브랜드, 스펙, 옵션)를 모두 통합하여 분석
     """
@@ -311,7 +330,8 @@ def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", ba
     # 3. 프롬프트 구성
     system_prompt = """
     너는 이커머스 상품 분석 전문가다.
-    제공된 [이미지]와 [텍스트 정보]를 모두 종합하여 분석하라.
+    제공된 정보(이미지가 있다면 이미지 포함, 없다면 텍스트 기반)를 모두 종합하여 분석하라.
+    이미지가 없다면 텍스트 기반으로 분석하라.
     제공된 텍스트와 상품 이미지를 종합적으로 분석하여 JSON 데이터를 완성하라.
 
     [중요 지침]
