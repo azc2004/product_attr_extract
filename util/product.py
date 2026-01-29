@@ -232,47 +232,48 @@ def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", ma
             {clean_desc}
             """
     
-    # 이미지 추가 (Base64 변환 로직은 기존과 동일하므로 함수 호출로 대체)
-    # --- 2. 스마트 이미지 추출 및 필터링 ---
-    found_images = extract_img_for_html(soup, basic_ext_nm)
-    
     ai_image_inputs = []
     used_image_urls = [] # ★ 실제로 사용된(Base64 변환 성공한) 이미지 URL 저장용
 
-    # 외부 이미지 제한정책으로 인한 로컬 다운로드
-    if found_images:
-        valid_image_count = 0
+    if use_images:
+        # 이미지 추가 (Base64 변환 로직은 기존과 동일하므로 함수 호출로 대체)
+        # --- 2. 스마트 이미지 추출 및 필터링 ---
+        found_images = extract_img_for_html(soup, basic_ext_nm)
 
-        if not "gemini" in model_name.lower(): 
-            user_content.append({"type": "text", "text": "상품 이미지들:"})
-        
-        
-        for img_url in found_images:
-            # 최대 6장까지만 처리 (비용 및 속도 고려)
-            if valid_image_count >= max_images:
-                break
-                
-            # ★ 핵심: URL을 그냥 보내지 않고, Base64로 변환해서 보냄
-            base64_image = encode_image_to_base64(img_url, model_name)
+        # 외부 이미지 제한정책으로 인한 로컬 다운로드
+        if found_images:
+            valid_image_count = 0
+
+            if not "gemini" in model_name.lower(): 
+                user_content.append({"type": "text", "text": "상품 이미지들:"})
             
-            if base64_image:
-
-                if "gemini" in model_name.lower(): 
-                    ai_image_inputs.append(base64_image)
-                else:
-                    user_content.append({
-                        "type": "image_url",
-                        "image_url": {
-                            "url": base64_image, # 변환된 문자열을 넣음
-                            "detail": "low"      # low 모드 유지
-                        }
-                    })
+            
+            for img_url in found_images:
+                # 최대 6장까지만 처리 (비용 및 속도 고려)
+                if valid_image_count >= max_images:
+                    break
                     
-                used_image_urls.append(base64_image)
-                valid_image_count += 1
-                print(f"✅ 이미지 변환 성공: {img_url}")
-            else:
-                print(f"❌ 이미지 변환 실패 (건너뜀): {img_url}")
+                # ★ 핵심: URL을 그냥 보내지 않고, Base64로 변환해서 보냄
+                base64_image = encode_image_to_base64(img_url, model_name)
+                
+                if base64_image:
+
+                    if "gemini" in model_name.lower(): 
+                        ai_image_inputs.append(base64_image)
+                    else:
+                        user_content.append({
+                            "type": "image_url",
+                            "image_url": {
+                                "url": base64_image, # 변환된 문자열을 넣음
+                                "detail": "low"      # low 모드 유지
+                            }
+                        })
+                        
+                    used_image_urls.append(base64_image)
+                    valid_image_count += 1
+                    print(f"✅ 이미지 변환 성공: {img_url}")
+                else:
+                    print(f"❌ 이미지 변환 실패 (건너뜀): {img_url}")
 
     # --- 4. OpenAI API 호출 ---
     try:
