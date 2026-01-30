@@ -358,6 +358,17 @@ def main():
                     st.code(json_str, language="json")
                 except:
                     st.write("데이터 변환 오류")
+
+            # 2. [추가] AI가 생성한 최종 JSON 결과물
+            if st.session_state.ai_result:
+                with st.expander("✨ AI 분석 최종 JSON 결과", expanded=True): # 바로 보이게 expanded=True 권장
+                    res = st.session_state.ai_result
+                    
+                    # Pydantic 모델인 경우 dict 변환, 아니면 그대로 사용
+                    json_res = res.dict() if hasattr(res, 'dict') else res
+                    
+                    st.json(json_res) 
+                    st.caption("AI가 프롬프트 지침에 따라 생성한 최종 구조화 데이터입니다.")
             
             # ★ [추가] 3. 분석에 사용된 이미지 갤러리
             if "analyzed_images" in st.session_state and st.session_state.analyzed_images:
