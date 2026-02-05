@@ -30,8 +30,7 @@ def _call_gemini_api(system_prompt, user_text, image_list, model_name, api_key):
         model = genai.GenerativeModel(
             model_name=model_name, # 예: "gemini-2.5-flash"
             system_instruction=system_prompt,
-            generation_config=generation_config,
-            safety_settings=safety_settings
+            generation_config=generation_config
         )
 
         # 1. 멀티모달(텍스트+이미지) 구성
@@ -45,7 +44,8 @@ def _call_gemini_api(system_prompt, user_text, image_list, model_name, api_key):
 
         # 2. 첫 번째 시도 (이미지 포함)
         try:
-            response = model.generate_content(content_parts)
+            # 안전 설정 적용하여 호출
+            response = model.generate_content(content_parts, safety_settings=safety_settings)
         except Exception:
             response = None
 

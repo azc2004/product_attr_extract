@@ -2,7 +2,7 @@ import requests
 import pandas as pd
 import json
 import ast
-from util.image import encode_image_to_base64, extract_img_for_html
+from util.image import encode_image_to_base64, encode_image_to_base64_chunk, extract_img_for_html, extract_all_valid_images
 from bs4 import BeautifulSoup
 from requests.exceptions import HTTPError
 from schema.product import ProductSchema
@@ -92,7 +92,7 @@ def getPrdInfoByJson(data):
 
     # 3. 이미지 URL 
     # 키 이름: basicExtNm (주의: 앞에 도메인이 없을 수 있음)
-    result['prdImg'] = df['productImage'].apply(lambda x: x.get('basicExtNm') if isinstance(x, dict) else None)
+    result['prdImg'] = df['productImage'].apply(extract_all_valid_images)
     
     # 4. 옵션 정보 (리스트 -> 보기 좋은 문자열로 변환)
     # 예: "색상: BLACK, SAND / 사이즈: 95, 100"
@@ -195,8 +195,11 @@ def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", ma
     
     # 2. HTML 상세설명 (기존 로직)
     row = html_content.iloc[0]
+
+    # 대표이미지(추가이미지 포함)
     basic_ext_nm = row.get('prdImg', '')
-    basic_ext_nm = f"https://cdn2.halfclub.com/rimg/330x440/contain/{basic_ext_nm}?format=webp"
+    # basic_ext_nm = f"https://cdn2.halfclub.com/rimg/330x440/contain/{basic_ext_nm}?format=webp"
+
     html_desc = row.get('prdDesc', '')
     if html_desc:
         soup = BeautifulSoup(html_desc, 'html.parser')
@@ -206,31 +209,15 @@ def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", ma
         clean_desc = "(상세설명 없음)"
 
     # 유저 메시지에 메타데이터와 상세설명을 구분해서 주입
-    user_content = [
-            {
-                "type": "text", 
-                "text": f"""
-                다음은 상품에 대한 텍스트 데이터이다. 이 내용을 분석의 핵심 근거로 삼아라.
-                
-                {metadata_text}
-                
-                ----------------
-                [상세 페이지 문구]
-                {clean_desc}
-                """
-            }
-        ]
-    
-    if "gemini" in model_name.lower(): 
-        user_content = f"""
-            다음은 상품에 대한 텍스트 데이터이다. 이 내용을 분석의 핵심 근거로 삼아라.
-            
-            {metadata_text}
-            
-            ----------------
-            [상세 페이지 문구]
-            {clean_desc}
-            """
+    user_content = f"""
+        다음은 상품에 대한 텍스트 데이터이다. 이 내용을 분석의 핵심 근거로 삼아라.
+        
+        {metadata_text}
+        
+        ----------------
+        [상세 페이지 문구]
+        {clean_desc}
+        """
     
     ai_image_inputs = []
     used_image_urls = [] # ★ 실제로 사용된(Base64 변환 성공한) 이미지 URL 저장용
@@ -238,37 +225,23 @@ def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", ma
     if use_images:
         # 이미지 추가 (Base64 변환 로직은 기존과 동일하므로 함수 호출로 대체)
         # --- 2. 스마트 이미지 추출 및 필터링 ---
-        found_images = extract_img_for_html(soup, basic_ext_nm)
+        # found_images = extract_img_for_html(soup, basic_ext_nm)
+        found_images = basic_ext_nm
 
         # 외부 이미지 제한정책으로 인한 로컬 다운로드
         if found_images:
             valid_image_count = 0
 
-            if not "gemini" in model_name.lower(): 
-                user_content.append({"type": "text", "text": "상품 이미지들:"})
-            
-            
             for img_url in found_images:
                 # 최대 6장까지만 처리 (비용 및 속도 고려)
                 if valid_image_count >= max_images:
                     break
                     
                 # ★ 핵심: URL을 그냥 보내지 않고, Base64로 변환해서 보냄
-                base64_image = encode_image_to_base64(img_url, model_name)
+                base64_image = encode_image_to_base64_chunk(img_url, model_name)
                 
                 if base64_image:
-
-                    if "gemini" in model_name.lower(): 
-                        ai_image_inputs.append(base64_image)
-                    else:
-                        user_content.append({
-                            "type": "image_url",
-                            "image_url": {
-                                "url": base64_image, # 변환된 문자열을 넣음
-                                "detail": "low"      # low 모드 유지
-                            }
-                        })
-                        
+                    ai_image_inputs.extend(base64_image)    
                     used_image_urls.append(base64_image)
                     valid_image_count += 1
                     print(f"✅ 이미지 변환 성공: {img_url}")
@@ -284,8 +257,11 @@ def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", ma
             model_name=model_name
         )
 
-        product_data = response
-        return product_data, used_image_urls
+        # ★ [핵심 수정] 무조건 3개의 값을 반환해야 합니다!
+        if response is None:
+            return None, [], [] # (1. 결과, 2. 원본 URL들, 3. 크롭 이미지들, 4. 상세설명에서 추출한 text)
+
+        return response, used_image_urls, ai_image_inputs, clean_desc
         
     except Exception as e:
         print(f"API 호출 중 오류 발생: {e}")

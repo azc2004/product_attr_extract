@@ -4,17 +4,17 @@ from util.product import getProductInfo, analyze_product_with_full_context
 from util.search import getPrdListByKeyword, process_es_hit_to_display
 
 DEFAULT_SYSTEM_PROMPT ="""
-너는 이커머스 상품 분석 전문가다.
-제공된 정보(이미지가 있다면 이미지 포함, 없다면 텍스트 기반)를 모두 종합하여 분석하라.
-이미지가 없다면 텍스트 기반으로 분석하라.
-제공된 텍스트와 상품 이미지를 종합적으로 분석하여 JSON 데이터를 완성하라.
+너는 이커머스 상품 분석 전문가다
+제공된 정보(이미지가 있다면 이미지 포함, 없다면 텍스트 기반)를 모두 종합하여 분석하라
+이미지가 없다면 텍스트 기반으로 분석하라
+제공된 텍스트와 상품 이미지를 종합적으로 분석하여 JSON 데이터를 완성하라
 
 [절대 규칙]
-1. description은 반드시 **한글 500자 이상**으로 작성해야 한다.
-2. 500자 미만일 경우, 스스로 내용을 보완하여 다시 작성한다.
-3. 텍스트 정보가 이미지보다 항상 우선한다.
-4. 추측하거나 없는 정보를 생성하지 않는다.
-5. 설명은 광고 문구가 아닌, 실제 구매자가 이해하기 쉬운 정보 중심으로 작성한다.
+1. description은 반드시 **한글 500자 이상**으로 작성해야 한다
+2. 500자 미만일 경우, 스스로 내용을 보완하여 다시 작성한다
+3. 텍스트 정보가 이미지보다 항상 우선한다(단 사이즈 정보는 이미지를 우선한다)
+4. 추측하거나 없는 정보를 생성하지 않는다
+5. 설명은 광고 문구가 아닌, 실제 구매자가 이해하기 쉬운 정보 중심으로 작성한다
 
 [중요 지침]
 1. 정보 신뢰 우선순위
@@ -43,6 +43,10 @@ DEFAULT_SYSTEM_PROMPT ="""
 - 디자인 또는 실루엣 특징
 - 계절감 및 활용도
 - 어떤 사람에게 적합한지
+
+7. 사이즈(ai_size)
+- 이미지내에 사이즈 정보 또는 사이즈표가 있다면 json 형태로 추출
+- 정보가 없으면 공백 처리
 
 [스타일 분류 기준]
 - 미니멀 : 미니멀, 모던, 심플, 깔끔, 군더더기, 절제, 무지, 원톤, 미니멀룩, 클린
@@ -126,8 +130,8 @@ def main():
             options=[
                     "gemini-2.5-flash-lite",
                     "gemini-2.5-flash",
-                    "qwen-vl-plus",
-                    "qwen3-vl-plus",
+                    # "qwen-vl-plus",
+                    # "qwen3-vl-plus",
                     "gpt-4o-mini", 
                     "gpt-4o"
                 ],
@@ -135,8 +139,8 @@ def main():
             captions=[
                     "Google 초고속/초저비용",
                     "Google 초고속/저비용",
-                    "Qwen 경량/저비용", 
-                    "Qwen3 고성능/저비용", 
+                    # "Qwen 경량/저비용", 
+                    # "Qwen3 고성능/저비용", 
                     "OpenAI 경량/저비용", 
                     "OpenAI 고성능/고비용"
                 ]
@@ -289,7 +293,7 @@ def main():
                     # 선택된 모델로 분석 실행
                     # 주의: analyze_product_with_full_context 함수 내부에서
                     # gemini-2.5-flash 모델명을 처리할 수 있어야 합니다.
-                    result, used_images = analyze_product_with_full_context(
+                    result, used_images, ai_chunks, clean_desc = analyze_product_with_full_context(
                         row, 
                         model_name=model_name,
                         use_images = use_image_analysis,
@@ -298,8 +302,15 @@ def main():
                     # 결과 출력 및 확인을 위해 UI에 표시 (선택 사항)
                     st.write("사용된 프롬프트 확인용:", current_final_prompt[:50] + "...")
                     st.session_state.ai_result = result
+
                     # ★ [추가] 사용된 이미지 리스트도 세션에 저장
                     st.session_state.analyzed_images = used_images
+
+                    # ★ 크롭된 이미지 조각들 저장
+                    st.session_state.ai_chunks = ai_chunks  
+
+                    # ★ 상세설명 html에서 추출해낸 텍스트
+                    st.session_state.clean_desc = clean_desc  
                     
                 except Exception as e:
                     st.session_state.ai_result = None
@@ -329,16 +340,31 @@ def main():
         # === 왼쪽 컬럼: 상품 이미지 ===
         with c_left:
             st.markdown("#### 🖼️ 상품 이미지")
-            if row.iloc[0]['prdImg']:
+            # 1. 데이터 가져오기 (이제 리스트 형태임)
+            img_data = row.iloc[0]['prdImg']
+            target_url = None
+
+            # 2. 데이터 타입에 따라 URL 추출
+            if isinstance(img_data, list):
+                # 리스트라면 첫 번째 요소(basicExtNm)가 대표 이미지
+                if len(img_data) > 0:
+                    target_url = img_data[0]
+            elif isinstance(img_data, str):
+                # (혹시 모를 하위 호환) 문자열이면 그대로 사용
+                target_url = img_data
+
+            # 3. 이미지 출력
+            if target_url:
                 try:
-                    img_url = row.iloc[0]['prdImg']
-                    if not img_url.startswith("http"):
-                         img_url = f"https://cdn2.halfclub.com/{img_url.lstrip('/')}"
-                    st.image(img_url, caption="상세 이미지", width=350)
+                    # URL이 http로 시작하지 않으면 도메인 붙이기 (기존 로직 유지)
+                    if not target_url.startswith("http"):
+                        target_url = f"https://cdn2.halfclub.com/{target_url.lstrip('/')}"
+                    
+                    st.image(target_url, caption="대표 이미지", width=350)
                 except:
                     st.error("이미지 로드 실패")
             else:
-                 st.write("이미지 없음")
+                st.write("이미지 없음")
 
         # === 오른쪽 컬럼: 텍스트 정보 + 디버그 정보 ===
         with c_right:
@@ -365,23 +391,59 @@ def main():
                     res = st.session_state.ai_result
                     
                     # Pydantic 모델인 경우 dict 변환, 아니면 그대로 사용
-                    json_res = res.dict() if hasattr(res, 'dict') else res
+                    json_res = res.model_dump() if hasattr(res, 'dict') else res
                     
                     st.json(json_res) 
                     st.caption("AI가 프롬프트 지침에 따라 생성한 최종 구조화 데이터입니다.")
-            
+
+
             # ★ [추가] 3. 분석에 사용된 이미지 갤러리
-            if "analyzed_images" in st.session_state and st.session_state.analyzed_images:
-                with st.expander(f"📸 분석 이미지 전체 보기 ({len(st.session_state.analyzed_images)}장)"):
-                    st.write("")
-                    st.markdown("#### 📸 분석에 사용된 이미지")
+            # if "analyzed_images" in st.session_state and st.session_state.analyzed_images:
+            #     with st.expander(f"📸 분석 이미지 전체 보기 ({len(st.session_state.analyzed_images)}장)"):
+            #         st.write("")
+            #         st.markdown("#### 📸 분석에 사용된 이미지")
                     
-                    # 이미지를 3열 그리드로 예쁘게 표시
-                    img_cols = st.columns(3)
-                    for idx, img_url in enumerate(st.session_state.analyzed_images):
-                        with img_cols[idx % 3]:
-                            # 캡션에 순서 표시 (이미지 1, 이미지 2...)
-                            st.image(img_url, caption=f"이미지 {idx+1}", width="stretch")
+            #         img_cols = st.columns(3)
+            #         for idx, img_data in enumerate(st.session_state.analyzed_images):
+            #             with img_cols[idx % 3]:
+            #                 # ★ [핵심 수정] 여기가 오류 원인입니다.
+            #                 # img_data가 문자열이 아니라 ['url1', 'url2'...] 리스트로 들어오고 있습니다.
+            #                 target_img = img_data
+                            
+            #                 if isinstance(target_img, list):
+            #                     # 리스트라면 첫 번째 이미지만 꺼냅니다.
+            #                     target_img = target_img[0] if len(target_img) > 0 else None
+                            
+            #                 # 이미지가 유효할 때만 출력
+            #                 if target_img:
+            #                     st.image(target_img, caption=f"이미지 {idx+1}", width="content")        
+
+
+            # 1. 실제 AI가 분석한 이미지 
+            # ai_chunks가 있으면(이미지 분석 옵션을 켰으면) 이걸 우선 보여줍니다.
+            if "ai_chunks" in st.session_state and st.session_state.ai_chunks:
+                with st.expander(f"🧩 실제 AI가 본 이미지 ({len(st.session_state.ai_chunks)}장)"):
+                    st.info("💡 긴 상세페이지는 AI가 인식하기 좋게 자동으로 잘라서(Chunking) 전송됩니다.")
+                    
+                    # 3열 그리드로 예쁘게 출력
+                    cols = st.columns(3)
+                    for idx, b64_img in enumerate(st.session_state.ai_chunks):
+                        with cols[idx % 3]:
+                            # 리스트인지 확인하여 방어 코드 추가
+                            if isinstance(b64_img, list):
+                                # 만약 리스트라면 첫 번째 것만 가져오거나 무시
+                                if b64_img: b64_img = b64_img[0]
+                                else: continue
+                            
+                            st.image(b64_img, caption=f"image #{idx+1}", width="content")
+
+            
+            # 상세설명 HTML에서 뽑아낸 텍스트
+            if "clean_desc" in st.session_state and st.session_state.clean_desc:
+                with st.expander(f"🧩 상세설명 HTML에서 뽑아낸 텍스트"):
+                    st.code(st.session_state.clean_desc)
+            
+            
         
         # ---------------------------------------------------------
         # [하단 레이아웃] AI 분석 리포트
