@@ -2,11 +2,9 @@ import requests
 import pandas as pd
 import json
 import ast
-from util.image import encode_image_to_base64, encode_image_to_base64_chunk, extract_img_for_html, extract_all_valid_images
+from util.image import encode_image_to_base64_chunk, extract_all_valid_images
 from bs4 import BeautifulSoup
 from requests.exceptions import HTTPError
-from schema.product import ProductSchema
-from urllib.parse import urljoin
 from ai.model import call_ai_service
 
 # 상품api 에서 상품정보 추출

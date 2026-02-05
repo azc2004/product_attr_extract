@@ -1,7 +1,7 @@
 import requests
 import base64
-from PIL import Image, ImageStat   # ★ 추가 필요
-from io import BytesIO  # ★ 추가 필요
+from PIL import Image, ImageStat
+from io import BytesIO
 
 
 # 외부 사이트 이미지 제한정책으로 인한 이미지 로컬 다운로드 
@@ -70,7 +70,6 @@ def encode_image_to_base64(image_url, model_name):
 # ==========================================
 # [2] 이미지 처리 함수 (★ 스마트 컷 기능 추가됨)
 # ==========================================
-
 def find_safe_split_point(img, start_y, max_height, lookback_range=200):
     """
     이미지를 자를 때, 자르려는 위치(max_height)에서 위쪽(lookback_range)을 스캔하여
