@@ -59,7 +59,7 @@ def _call_gemini_api(system_prompt, user_text, image_list, model_name, api_key):
             # 이미지가 포함되어 있었고 차단되었다면 -> 텍스트로만 재시도
             if len(image_list) > 0:
                 print(f"⚠️ 이미지 분석 차단됨 (사유: {reason}). 텍스트 모드로 재시도합니다.")
-                st.toast(f"⚠️ 이미지 보안 정책으로 인해 텍스트만 분석합니다.", icon="🛡️")
+                st.toast(f"⚠️ 이미지 보안 정책으로 인해 텍스트만 분석합니다.")
                 
                 # 이미지를 뺀 순수 텍스트만 전송
                 response = model.generate_content([user_text])

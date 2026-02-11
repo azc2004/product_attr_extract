@@ -81,6 +81,7 @@ def getPrdInfoByJson(data):
     result = pd.DataFrame()
     
     # 1. 기본 정보
+    result['prdNo'] = df['prdNo']
     result['prdNm'] = df['prdNm']
     result['brandNm'] = df['brandMainNmKr']
 
@@ -183,7 +184,7 @@ def format_product_metadata(rowData):
     return meta_text
 
 # 상품정보 기반 스타일, 속성, 카테고리 등 추론
-def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", max_images=6, use_images=True, system_prompt=None):
+def analyze_product_with_full_context(html_content, model_name="gemini-2.5-flash-lite", max_images=6, use_images=True, system_prompt=None):
     """
     이미지 + HTML설명 + 메타데이터(브랜드, 스펙, 옵션)를 모두 통합하여 분석
     """
@@ -254,10 +255,10 @@ def analyze_product_with_full_context(html_content, model_name="gpt-4o-mini", ma
             image_list=ai_image_inputs,
             model_name=model_name
         )
-
+      
         # ★ [핵심 수정] 무조건 3개의 값을 반환해야 합니다!
         if response is None:
-            return None, [], [] # (1. 결과, 2. 원본 URL들, 3. 크롭 이미지들, 4. 상세설명에서 추출한 text)
+            return None, [], [], [] # (1. 결과, 2. 원본 URL들, 3. 크롭 이미지들, 4. 상세설명에서 추출한 text)
 
         return response, used_image_urls, ai_image_inputs, clean_desc
         
